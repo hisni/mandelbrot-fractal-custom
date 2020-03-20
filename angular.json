@@ -13,8 +13,12 @@
         "build": {
           "builder": "@angular-builders/custom-webpack:browser",
           "options": {
-            "customWebpackConfig": { "path": "./extra-webpack.config.js",
-              "mergeStrategies": { "externals": "replace" } },
+            "customWebpackConfig": {
+              "path": "./extra-webpack.config.js",
+              "mergeStrategies": {
+                "externals": "replace"
+              }
+            },
             "outputPath": "dist/fractal-custom",
             "index": "src/index.html",
             "main": "src/main.ts",
@@ -30,7 +34,6 @@
             "scripts": [
               {
                 "input": "node_modules/document-register-element/build/document-register-element.js"
-
               },
               "node_modules/jquery/dist/jquery.min.js"
             ]
@@ -139,5 +142,8 @@
       }
     }
   },
-  "defaultProject": "fractal-custom"
+  "defaultProject": "fractal-custom",
+  "cli": {
+    "analytics": "f0ebb770-4930-415c-969f-0afd78015351"
+  }
 }
