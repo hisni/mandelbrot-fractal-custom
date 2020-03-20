@@ -1,4 +1,4 @@
-import { Component, OnInit, Input ,NgZone } from '@angular/core';
+import { Component, OnInit, Input, Output, NgZone, SimpleChanges, EventEmitter } from '@angular/core';
 import { MatRadioChange } from '@angular/material';
 import * as interact from 'interactjs';
 import { HostListener } from '@angular/core';
@@ -7,9 +7,6 @@ import ResizeObserver from 'resize-observer-polyfill';
 // declare var $: any;
 declare var $: any;
 declare var jQuery: any;
-
-
-var a
 
 @Component({
   selector: 'fractal-image',
@@ -26,10 +23,21 @@ export class FractalImageComponent implements OnInit {
 
   // {int} Controls the sensitivity of mouse-drag zoom.
   ZOOM_SLUGGISHNESS = 30;
-  motion = "position";
+
+
+  // CONSTANTS
+  frame_rate = 25;
+  video_speedup = 1.4;
+  timeouts_per_frame = 2;
+
+  MOTION_TIMEOUT = Math.round(1000 / this.frame_rate * this.video_speedup / this.timeouts_per_frame);
+  VELOCITY_FACTOR = 1 / this.MOTION_TIMEOUT;
+  ACCELERATION_FACTOR = this.VELOCITY_FACTOR / this.MOTION_TIMEOUT;
+  ZOOM_VELOCITY_FACTOR = this.VELOCITY_FACTOR * 0.6;
+  ZOOM_ACCELERATION_FACTOR = this.ACCELERATION_FACTOR * 0.6;
+
   desired_image_properties: any
   image: any;
-  colors: any;
   _zoom_level = 0;
   imageLoaded = true;
   present_image_properties = null;
@@ -39,36 +47,43 @@ export class FractalImageComponent implements OnInit {
   dragging = false;
   motion_x = 0;
   motion_y = 0;
+  motion_z = 0;
+  velocity_x = 0;
+  velocity_y = 0;
+  velocity_z = 0;
 
   _modify = 'false';
-   _newparameter = '';
+  _newparameter = '';
 
+  // STEREO CONSTANTS
+  DEFAULT_IMAGE_GAP = 4;
+  DEFAULT_EYE_SEPARATION = 386;
 
+  @Input() settings: string;
+  @Input() motion: string;
+  @Input() stereo: boolean;
 
-  constructor(private ngzone:NgZone) {
+  constructor(private ngzone: NgZone) {
+  }
+
+  ngOnChanges(changes: SimpleChanges) {
+    this.setParameterNew(changes.settings.currentValue);
   }
 
   ngOnInit() {
 
-    if (this.modify === 'true') {
-      this.set(0, 0, 0.015625, 0.015625, 256, 256, 1225, "cpp", true,this.newparameter[0], this.newparameter[1]);
-      console.log(this.newparameter[0])
-
-    }
-    else {
-      this.set(0, 0, 0.015625, 0.015625, 256, 256, 1225, "cpp", true,0,0);      
-    }
-    this.setParmeter();
+    this.initialSet(0, 0, 0.015625, 0.015625, 256, 256);
+    this.setParameter();
     this.imageInteractive();
-     //Modification to make ResizeObserver work .
-     this.ngzone.runOutsideAngular(() => {
+    //   //Modification to make ResizeObserver work .
+    this.ngzone.runOutsideAngular(() => {
       this.ro.observe($("#imagesContainer")[0]);
-  });
+    });
   }
 
 
   //set the parameter to the desired_image_properties object
-  set(x, y, pix_x, pix_y, width, height, max_depth, renderer, darken, color,edge) {
+  initialSet(x, y, pix_x, pix_y, width, height) {
     this.desired_image_properties = {
       x: x,
       y: y,
@@ -76,14 +91,18 @@ export class FractalImageComponent implements OnInit {
       pix_y: pix_y,
       width: width,
       height: height,
-      max_depth: max_depth,
-      renderer: renderer,
-      darken: darken,
-      colors:color,
-      edge:edge
+      max_depth: 1225,
+      renderer: "cpp",
+      darken: true,
+      colors: 2,
+      edge: 0,
+      eye_sep: this.DEFAULT_EYE_SEPARATION,
+      image_sep: this.DEFAULT_IMAGE_GAP,
+      offset_w: 0,
+      offset_h: 0,
     }
     this.present_image_properties = (JSON.parse(JSON.stringify(this.desired_image_properties)));
-    
+
   }
   /**
    * setter and getter method
@@ -106,16 +125,50 @@ export class FractalImageComponent implements OnInit {
   /**
    * sets the parameter to the image src
    */
-  setParmeter() {
+  setParameter() {
+    // this.set(0, 0, 0.015625, 0.015625, 256, 256, 1225, "cpp", true, this.colors1, 0);
     var json = JSON.stringify(this.desired_image_properties);
     var img_url = "http://fractalvalley.net/img?json=" + json;
     // console.log(json)
     console.log(img_url)
     $(".image").attr("src", img_url);
   }
+  
+  setParameterNew(settings) {
+    this.desired_image_properties.offset_w = (this.stereo ? (this.desired_image_properties.image_sep - this.desired_image_properties.eye_sep) / 2.0 : 0);
+    let tmpParam = {
+      x: this.desired_image_properties.x,
+      y: this.desired_image_properties.y,
+      pix_x: this.desired_image_properties.pix_x,
+      pix_y: this.desired_image_properties.pix_y,
+      width: this.desired_image_properties.width,
+      height: this.desired_image_properties.height,
+      offset_w: this.desired_image_properties.offset_w,
+      offset_h: this.desired_image_properties.offset_h,
+      eye_sep: this.desired_image_properties.eye_sep
+    }
+    let json = JSON.stringify(tmpParam).slice(0, -1) + ',' + settings.slice(1);
+    this.desired_image_properties = JSON.parse(json);
+    this.present_image_properties = (JSON.parse(JSON.stringify(this.desired_image_properties)));
+    
+    let img_url = "http://fractalvalley.net/img?json=" + json;
+    console.log(this.desired_image_properties); 
+    // console.log(json)
+    console.log(img_url)
+    $(".image").attr("src", img_url);
+  }
+
   /**
    * Function that responsible for image-interaction
    */
+
+  getOffsetX(e) {
+    return e.offsetX;
+  }
+  getOffsetY(e) {
+    return e.offsetY;
+  }
+
   imageInteractive() {
     interact(".image")
       .draggable({
@@ -123,6 +176,18 @@ export class FractalImageComponent implements OnInit {
       })
       .on('up', (e) => {
         this.endDrag();
+      })
+      .on('down', (e) => {
+        this.dragging = true;
+        if (this.motion != "position") {
+          this.motion_x = this.getOffsetX(e) - e.target.clientWidth / 2.0;
+          this.motion_y = this.getOffsetY(e) - e.target.clientHeight / 2.0;
+          this.motion_z = 0;
+          this.velocity_x = 0;
+          this.velocity_y = 0;
+          this.velocity_z = 0;
+          this.setMotionTimeout();
+        }
       })
       .on('dragstart', (e) => {
         this.dragging = true;
@@ -140,7 +205,10 @@ export class FractalImageComponent implements OnInit {
           // Mouse button & drag used for zoom (not currently enabled).
           let amt = e.dy / this.ZOOM_SLUGGISHNESS;
           if (this.motion === "position") {
-            this.desired_image_properties.zoomBy(amt);
+            this.zoomBy(amt);
+          }
+          else {
+            this.motion_z += amt;
           }
         } else {
           // Default for position.
@@ -167,6 +235,12 @@ export class FractalImageComponent implements OnInit {
           this.zoomByAt(amt, (e.offsetX - e.target.clientWidth / 2.0) * this.desired_image_properties.pix_x,
             (e.offsetY - e.target.clientHeight / 2.0) * this.desired_image_properties.pix_y);
         }
+        else {
+          console.log(`Wheel: ${amt}`);
+          this.motion_z += amt;
+          this.zoomByAt(amt, (e.offsetX - e.target.clientWidth / 2.0) * this.desired_image_properties.pix_x,
+            (e.offsetY - e.target.clientHeight / 2.0) * this.desired_image_properties.pix_y);
+        }
       })
 
   }
@@ -188,6 +262,17 @@ export class FractalImageComponent implements OnInit {
       this.updateImage();
     }
   }
+
+  zoomBy(v) {
+    this.present_image_properties = (JSON.parse(JSON.stringify(this.desired_image_properties)));
+    this.zoom_level += v;
+    this.desired_image_properties.pix_x = this.pix_size_x;
+    this.desired_image_properties.pix_y = this.pix_size_y;
+    if (this.flag) {
+      this.updateImage();
+    }
+  }
+
   /**
    * Function responsible for the drag feature 
    */
@@ -204,7 +289,7 @@ export class FractalImageComponent implements OnInit {
    */
   updateImage() {
     if (!(JSON.stringify(this.present_image_properties).toLowerCase() === JSON.stringify(this.desired_image_properties).toLowerCase())) {
-      this.setParmeter();
+      this.setParameter();
       this.flag = false
       this.present_image_properties = (JSON.parse(JSON.stringify(this.desired_image_properties)));
     }
@@ -219,57 +304,78 @@ export class FractalImageComponent implements OnInit {
    * When user want to interact with Component
    */
 
+  applyMotion() {
+    if (this.dragging) {
+      if (this.motion === "acceleration") {
+        this.velocity_x += this.motion_x * - this.ACCELERATION_FACTOR;
+        this.velocity_y += this.motion_y * - this.ACCELERATION_FACTOR;
+        this.velocity_z += this.motion_z * this.ZOOM_ACCELERATION_FACTOR;
+      } else {
+        this.velocity_x = this.motion_x * - this.VELOCITY_FACTOR;
+        this.velocity_y = this.motion_y * - this.VELOCITY_FACTOR;
+        this.velocity_z = this.motion_z * this.ZOOM_VELOCITY_FACTOR;
+      }
+      this.panBy(this.velocity_x, this.velocity_y);
+      this.zoomBy(this.velocity_z);
+      this.setMotionTimeout();
+    }
+  }
 
-  @Input()
-  set modify(newModify: string) {
-    this._modify = newModify;
+  setMotionTimeout() {
+    setTimeout(() => { this.applyMotion(); }, this.MOTION_TIMEOUT);
   }
-  get modify() {
-    return this._modify;
-  }
-  @Input()
-  set newparameter(parameter:string) {
-    this._newparameter = JSON.parse(parameter);
-  }
-  get newparameter() {
-    return this._newparameter;
-  }
+
+
+  // @Input()
+  // set modify(newModify: string) {
+  //   this._modify = newModify;
+  // }
+  // get modify() {
+  //   return this._modify;
+  // }
+  // @Input()
+  // set newparameter(parameter: string) {
+  //   this._newparameter = JSON.parse(parameter);
+  // }
+  // get newparameter() {
+  //   return this._newparameter;
+  // }
 
   //when a user resizes the resizable container, this method is invoked
   public ro = new ResizeObserver(entries => {
     this.sizeFullViewer();
- });
- 
- sizeFullViewer(){
-   let c = $("#imagesContainer");
-   let w = c.width();
-   let h = c.height();
-   // console.log(w,h)
-   this.sizeViewer(c);
- }
-   // Set viewer or playback view based on the size of the container component.
-   sizeViewer(container_el) {
-   
-     let c = container_el;
-     let c_w = c.width();
-     let w = c_w; 
-     let h = c.height();
-     
-    
-     w = Math.floor(w / 2) * 2; 
-     h = Math.floor(h / 2) * 2;
- 
-     //set width and height of image
-     this.desired_image_properties.width=w;
-     this.desired_image_properties.height=h;
-     
-     //set pix_x and pix_y of image
-     this.desired_image_properties.pix_x = this.pix_size_x;
-     this.desired_image_properties.pix_y = this.pix_size_y;
-     if (this.flag) {
-       this.updateImage();
-     }
-   }
+  });
+
+  sizeFullViewer() {
+    let c = $("#imagesContainer");
+    let w = c.width();
+    let h = c.height();
+    // console.log(w,h)
+    this.sizeViewer(c);
+  }
+  // Set viewer or playback view based on the size of the container component.
+  sizeViewer(container_el) {
+
+    let c = container_el;
+    let c_w = c.width();
+    let w = c_w;
+    let h = c.height();
+
+
+    w = Math.floor(w / 2) * 2;
+    h = Math.floor(h / 2) * 2;
+
+    //set width and height of image
+    this.desired_image_properties.width = w;
+    this.desired_image_properties.height = h;
+
+    //set pix_x and pix_y of image
+    this.desired_image_properties.pix_x = this.pix_size_x;
+    this.desired_image_properties.pix_y = this.pix_size_y;
+    if (this.flag) {
+      this.updateImage();
+    }
+  }
 }
 
 
